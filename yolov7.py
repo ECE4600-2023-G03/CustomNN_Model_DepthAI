@@ -32,29 +32,22 @@ syncNN = True
 pipeline = dai.Pipeline()
 
 # Define sources and outputs
-camRgb = pipeline.create(dai.node.ColorCamera)
 monoLeft = pipeline.create(dai.node.MonoCamera)
 monoRight = pipeline.create(dai.node.MonoCamera)
 stereo = pipeline.create(dai.node.StereoDepth)
-spatialDetectionNetwork = pipeline.create(dai.node.YoloSpatialDetectionNetwork)
+manip = pipeline.create(dai.node.ImageManip)
+spatialDetectionNetwork = pipeline.create(dai.node.YoloDetectionNetwork)
 
 xoutRgb = pipeline.create(dai.node.XLinkOut)
 xoutDepth = pipeline.create(dai.node.XLinkOut)
 xoutNN = pipeline.create(dai.node.XLinkOut)
 nnOut = pipeline.create(dai.node.XLinkOut)
 
-xoutRgb.setStreamName("rgb")
 xoutDepth.setStreamName("depth")
 xoutNN.setStreamName("detections")
 nnOut.setStreamName("nn")
 
 
-# Properties
-camRgb.setPreviewSize(640, 640)
-camRgb.setResolution(dai.ColorCameraProperties.SensorResolution.THE_1080_P)
-camRgb.setInterleaved(False)
-camRgb.setColorOrder(dai.ColorCameraProperties.ColorOrder.BGR)
-camRgb.setFps(40)
 
 monoLeft.setResolution(dai.MonoCameraProperties.SensorResolution.THE_400_P)
 monoLeft.setBoardSocket(dai.CameraBoardSocket.LEFT)
@@ -62,8 +55,12 @@ monoRight.setResolution(dai.MonoCameraProperties.SensorResolution.THE_400_P)
 monoRight.setBoardSocket(dai.CameraBoardSocket.RIGHT)
 
 stereo.setDefaultProfilePreset(dai.node.StereoDepth.PresetMode.HIGH_DENSITY)
+stereo.setRectifyEdgeFillColor(0)  # Black, to better see the cutout from rectification (black stripe on the edges)
 # Align depth map to the perspective of RGB camera, on which inference is done
-stereo.setDepthAlign(dai.CameraBoardSocket.RGB)
+# Convert the grayscale frame into the nn-acceptable form
+manip.initialConfig.setResize(640, 640)
+manip.initialConfig.setFrameType(dai.ImgFrame.Type.BGR888p)         # might not be right
+
 stereo.setOutputSize(monoLeft.getResolutionWidth(), monoLeft.getResolutionHeight())
 
 
@@ -78,8 +75,7 @@ spatialDetectionNetwork.setBlobPath(nnPath)
 spatialDetectionNetwork.setNumInferenceThreads(2)
 spatialDetectionNetwork.input.setBlocking(False)
 spatialDetectionNetwork.setBoundingBoxScaleFactor(0.5)
-spatialDetectionNetwork.setDepthLowerThreshold(100)
-spatialDetectionNetwork.setDepthUpperThreshold(5000)
+
 
 
 labelMap = model_dict['mappings']['labels']
@@ -173,6 +169,8 @@ with dai.Device(pipeline) as device:
             inRgb = qRgb.tryGet()
             inDet = qDet.tryGet()
             depth = depthQueue.tryGet()
+            inNN = networkQueue.get()
+
 
         if printOutputLayersOnce:
             toPrint = 'Output layer names:'
@@ -200,6 +198,7 @@ with dai.Device(pipeline) as device:
 
         if frame is not None:
             displayFrame("rgb", frame, depthFrameColor)
+            syncNN = False
 
         if cv2.waitKey(1) == ord('q'):
             break
