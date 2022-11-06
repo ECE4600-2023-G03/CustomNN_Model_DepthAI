@@ -18,6 +18,7 @@ if not Path(nnPath).exists():
     raise FileNotFoundError(f'Required file/s not found, please run "{sys.executable} install_requirements.py"')
 
 
+
 file = open('DepthAI_Conversion/yolov7tiny.json', 'r');
 
 model_params_text = file.read();
@@ -161,7 +162,7 @@ with dai.Device(pipeline) as device:
         # Show the frame
         cv2.imshow(name, frame)
         cv2.imshow("depth", depthFrameColor)
-        
+
     while True:
         if syncNN:
             inRgb = qRgb.get()
