@@ -40,12 +40,10 @@ stereo = pipeline.create(dai.node.StereoDepth)
 
 detectionNetwork = pipeline.create(dai.node.YoloDetectionNetwork)
 xoutRgb = pipeline.create(dai.node.XLinkOut)
-xoutDepth = pipeline.create(dai.node.XLinkOut)
 nnOut = pipeline.create(dai.node.XLinkOut)
 
 xoutRgb.setStreamName("rgb")
 nnOut.setStreamName("nn")
-xoutDepth.setStreamName("depth")
 
 
 # Properties
@@ -54,11 +52,6 @@ camRgb.setResolution(dai.ColorCameraProperties.SensorResolution.THE_1080_P)
 camRgb.setInterleaved(False)
 camRgb.setColorOrder(dai.ColorCameraProperties.ColorOrder.BGR)
 camRgb.setFps(40)
-
-monoLeft.setResolution(dai.MonoCameraProperties.SensorResolution.THE_400_P)
-monoLeft.setBoardSocket(dai.CameraBoardSocket.LEFT)
-monoRight.setResolution(dai.MonoCameraProperties.SensorResolution.THE_400_P)
-monoRight.setBoardSocket(dai.CameraBoardSocket.RIGHT)
 
 
 # Network specific settings
