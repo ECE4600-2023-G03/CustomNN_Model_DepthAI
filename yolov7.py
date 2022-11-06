@@ -34,34 +34,32 @@ pipeline = dai.Pipeline()
 # Define sources and outputs
 monoLeft = pipeline.create(dai.node.MonoCamera)
 monoRight = pipeline.create(dai.node.MonoCamera)
-stereo = pipeline.create(dai.node.StereoDepth)
+#stereo = pipeline.create(dai.node.StereoDepth)
 manip = pipeline.create(dai.node.ImageManip)
 spatialDetectionNetwork = pipeline.create(dai.node.YoloDetectionNetwork)
 
-xoutRgb = pipeline.create(dai.node.XLinkOut)
-xoutDepth = pipeline.create(dai.node.XLinkOut)
-xoutNN = pipeline.create(dai.node.XLinkOut)
 nnOut = pipeline.create(dai.node.XLinkOut)
+#disparityOut = pipeline.create(dai.node.XLinkOut)
+xoutRight = pipeline.create(dai.node.XLinkOut)
 
-xoutDepth.setStreamName("depth")
-xoutNN.setStreamName("detections")
+#disparityOut.setStreamName("disparity")
+xoutRight.setStreamName("rectifiedRight")
 nnOut.setStreamName("nn")
 
 
 
-monoLeft.setResolution(dai.MonoCameraProperties.SensorResolution.THE_400_P)
+monoLeft.setResolution(dai.MonoCameraProperties.SensorResolution.THE_720_P)
 monoLeft.setBoardSocket(dai.CameraBoardSocket.LEFT)
-monoRight.setResolution(dai.MonoCameraProperties.SensorResolution.THE_400_P)
+monoRight.setResolution(dai.MonoCameraProperties.SensorResolution.THE_720_P)
 monoRight.setBoardSocket(dai.CameraBoardSocket.RIGHT)
 
-stereo.setDefaultProfilePreset(dai.node.StereoDepth.PresetMode.HIGH_DENSITY)
-stereo.setRectifyEdgeFillColor(0)  # Black, to better see the cutout from rectification (black stripe on the edges)
-# Align depth map to the perspective of RGB camera, on which inference is done
+#stereo.setDefaultProfilePreset(dai.node.StereoDepth.PresetMode.HIGH_ACCURACY)
+#stereo.setRectifyEdgeFillColor(0)  # Black, to better see the cutout from rectification (black stripe on the edges)
 # Convert the grayscale frame into the nn-acceptable form
 manip.initialConfig.setResize(640, 640)
-manip.initialConfig.setFrameType(dai.ImgFrame.Type.BGR888p)         # might not be right
+manip.initialConfig.setFrameType(dai.ImgFrame.Type.BGRF16F16F16p)         # might not be right
 
-stereo.setOutputSize(monoLeft.getResolutionWidth(), monoLeft.getResolutionHeight())
+#stereo.setOutputSize(640, 640)
 
 
 # Network specific settings
@@ -74,36 +72,26 @@ spatialDetectionNetwork.setIouThreshold(model_dict['nn_config']['NN_specific_met
 spatialDetectionNetwork.setBlobPath(nnPath)
 spatialDetectionNetwork.setNumInferenceThreads(2)
 spatialDetectionNetwork.input.setBlocking(False)
-spatialDetectionNetwork.setBoundingBoxScaleFactor(0.5)
 
 
 
 labelMap = model_dict['mappings']['labels']
 
 # Linking
-monoLeft.out.link(stereo.left)
-monoRight.out.link(stereo.right)
-
-camRgb.preview.link(spatialDetectionNetwork.input)
-if syncNN:
-    spatialDetectionNetwork.passthrough.link(xoutRgb.input)
-else:
-    camRgb.preview.link(xoutRgb.input)
-
-spatialDetectionNetwork.out.link(xoutNN.input)
-
-stereo.depth.link(spatialDetectionNetwork.inputDepth)
-spatialDetectionNetwork.passthroughDepth.link(xoutDepth.input)
-spatialDetectionNetwork.outNetwork.link(nnOut.input)
+#stereo.rectifiedRight.link(manip.inputImage)
+#stereo.disparity.link(disparityOut.input)
+manip.out.link(xoutRight.input)
+manip.out.link(spatialDetectionNetwork.input)
+spatialDetectionNetwork.out.link(nnOut.input)
 
 # Connect to device and start pipeline
 with dai.Device(pipeline) as device:
 
     # Output queues will be used to get the rgb frames and nn data from the outputs defined above
-    qRgb = device.getOutputQueue(name="rgb", maxSize=4, blocking=False)
-    qDet = device.getOutputQueue(name="detections", maxSize=4, blocking=False)
-    depthQueue = device.getOutputQueue(name="depth", maxSize=4, blocking=False)
-    networkQueue = device.getOutputQueue(name="nn", maxSize=4, blocking=False)
+    qRight = device.getOutputQueue("rectifiedRight", maxSize=4, blocking=False)
+    #qDisparity = device.getOutputQueue("disparity", maxSize=4, blocking=False)
+    qDet = device.getOutputQueue("nn", maxSize=4, blocking=False)
+
 
     frame = None
     detections = []
@@ -118,87 +106,37 @@ with dai.Device(pipeline) as device:
         normVals[::2] = frame.shape[1]
         return (np.clip(np.array(bbox), 0, 1) * normVals).astype(int)
 
-    def displayFrame(name, frame, depthFrameColor):
+    def displayFrame(name, frame):
         color = (255, 0, 0)
         for detection in detections:
-            height = frame.shape[0]
-            width  = frame.shape[1]
-
             bbox = frameNorm(frame, (detection.xmin, detection.ymin, detection.xmax, detection.ymax))
-           
-            roiData = detection.boundingBoxMapping
-            roi = roiData.roi
-            roi = roi.denormalize(depthFrameColor.shape[1], depthFrameColor.shape[0])
-            topLeft = roi.topLeft()
-            bottomRight = roi.bottomRight()
-            xmin = int(topLeft.x)
-            ymin = int(topLeft.y)
-            xmax = int(bottomRight.x)
-            ymax = int(bottomRight.y)
-            cv2.rectangle(depthFrameColor, (xmin, ymin), (xmax, ymax), color, cv2.FONT_HERSHEY_SCRIPT_SIMPLEX)
-
-            # Denormalize bounding box
-            x1 = int(detection.xmin * width)
-            x2 = int(detection.xmax * width)
-            y1 = int(detection.ymin * height)
-            y2 = int(detection.ymax * height)
-            
-            try:
-                label = labelMap[detection.label]
-            except:
-                label = detection.label
-            cv2.putText(frame, str(label), (x1 + 10, y1 + 20), cv2.FONT_HERSHEY_TRIPLEX, 0.5, 255)
-            cv2.putText(frame, "{:.2f}".format(detection.confidence*100), (x1 + 10, y1 + 35), cv2.FONT_HERSHEY_TRIPLEX, 0.5, 255)
-            cv2.putText(frame, f"X: {int(detection.spatialCoordinates.x)} mm", (x1 + 10, y1 + 50), cv2.FONT_HERSHEY_TRIPLEX, 0.5, 255)
-            cv2.putText(frame, f"Y: {int(detection.spatialCoordinates.y)} mm", (x1 + 10, y1 + 65), cv2.FONT_HERSHEY_TRIPLEX, 0.5, 255)
-            cv2.putText(frame, f"Z: {int(detection.spatialCoordinates.z)} mm", (x1 + 10, y1 + 80), cv2.FONT_HERSHEY_TRIPLEX, 0.5, 255)
-
-            cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 0), cv2.FONT_HERSHEY_SIMPLEX)
-
+            cv2.putText(frame, labelMap[detection.label], (bbox[0] + 10, bbox[1] + 20), cv2.FONT_HERSHEY_TRIPLEX, 0.5, color)
+            cv2.putText(frame, f"{int(detection.confidence * 100)}%", (bbox[0] + 10, bbox[1] + 40), cv2.FONT_HERSHEY_TRIPLEX, 0.5, color)
+            cv2.rectangle(frame, (bbox[0], bbox[1]), (bbox[2], bbox[3]), color, 2)
         # Show the frame
         cv2.imshow(name, frame)
-        cv2.imshow("depth", depthFrameColor)
 
+    #disparityMultiplier = 255 / stereo.initialConfig.getMaxDisparity()
+
+    rightFrame = None
     while True:
-        if syncNN:
-            inRgb = qRgb.get()
-            inDet = qDet.get()
-            depth = depthQueue.get()
-            inNN = networkQueue.get()
-        else:
-            inRgb = qRgb.tryGet()
-            inDet = qDet.tryGet()
-            depth = depthQueue.tryGet()
-            inNN = networkQueue.get()
+        # Instead of get (blocking), we use tryGet (non-blocking) which will return the available data or None otherwise
+        if qDet.has():
+            detections = qDet.get().detections
 
+        if qRight.has():
+            rightFrame = qRight.get().getCvFrame()
 
-        if printOutputLayersOnce:
-            toPrint = 'Output layer names:'
-            for ten in inNN.getAllLayerNames():
-                toPrint = f'{toPrint} {ten},'
-            print(toPrint)
-            printOutputLayersOnce = False;
+        # if qDisparity.has():
+        #     # Frame is transformed, normalized, and color map will be applied to highlight the depth info
+        #     disparityFrame = qDisparity.get().getFrame()
+        #     disparityFrame = (disparityFrame*disparityMultiplier).astype(np.uint8)
+        #     # Available color maps: https://docs.opencv.org/3.4/d3/d50/group__imgproc__colormap.html
+        #     disparityFrame = cv2.applyColorMap(disparityFrame, cv2.COLORMAP_JET)
+        #     displayFrame("disparity", disparityFrame)
 
-        if inRgb is not None:
-            frame = inRgb.getCvFrame()
-
-        if depth is not None:
-            depthFrame = depth.getFrame() # depthFrame values are in millimeters
-
-            depthFrameColor = cv2.normalize(depthFrame, None, 255, 0, cv2.NORM_INF, cv2.CV_8UC1)
-            depthFrameColor = cv2.equalizeHist(depthFrameColor)
-            depthFrameColor = cv2.applyColorMap(depthFrameColor, cv2.COLORMAP_HOT)
-
-            cv2.putText(frame, "NN fps: {:.2f}".format(counter / (time.monotonic() - startTime)),
-                        (2, frame.shape[0] - 4), cv2.FONT_HERSHEY_TRIPLEX, 0.4, color2)
-
-        if inDet is not None:
-            detections = inDet.detections
-            counter += 1
-
-        if frame is not None:
-            displayFrame("rgb", frame, depthFrameColor)
-            syncNN = False
+        if rightFrame is not None:
+            displayFrame("rectified right", rightFrame)
 
         if cv2.waitKey(1) == ord('q'):
             break
