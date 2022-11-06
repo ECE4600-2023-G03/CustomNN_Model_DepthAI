@@ -11,14 +11,14 @@ import time
 import json
 
 # Get argument first
-nnPath = str((Path(__file__).parent / Path('./DepthAI_Conversion/yolov7tiny_openvino_2021.4_6shave.blob')).resolve().absolute())
+nnPath = str((Path(__file__).parent / Path('./result/yolov7tiny_openvino_2021.4_6shave.blob')).resolve().absolute())
 
 if not Path(nnPath).exists():
     import sys
     raise FileNotFoundError(f'Required file/s not found, please run "{sys.executable} install_requirements.py"')
 
 
-file = open('DepthAI_Conversion/yolov7tiny.json', 'r');
+file = open('result/yolov7tiny.json', 'r');
 
 model_params_text = file.read();
 
@@ -33,10 +33,6 @@ pipeline = dai.Pipeline()
 # Define sources and outputs
 camRgb = pipeline.create(dai.node.ColorCamera)
 spatialDetectionNetwork = pipeline.create(dai.node.MobileNetSpatialDetectionNetwork)
-monoLeft = pipeline.create(dai.node.MonoCamera)
-monoRight = pipeline.create(dai.node.MonoCamera)
-stereo = pipeline.create(dai.node.StereoDepth)
-
 
 detectionNetwork = pipeline.create(dai.node.YoloDetectionNetwork)
 xoutRgb = pipeline.create(dai.node.XLinkOut)
