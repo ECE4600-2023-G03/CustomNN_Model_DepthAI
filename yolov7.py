@@ -11,14 +11,14 @@ import time
 import json
 
 # Get argument first
-nnPath = str((Path(__file__).parent / Path('./result/yolov7tiny_openvino_2021.4_6shave.blob')).resolve().absolute())
+nnPath = str((Path(__file__).parent / Path('./416_tiny/yolov7tiny_openvino_2021.4_6shave.blob')).resolve().absolute())
 
 if not Path(nnPath).exists():
     import sys
     raise FileNotFoundError(f'Required file/s not found, please run "{sys.executable} install_requirements.py"')
 
 
-file = open('result/yolov7tiny.json', 'r');
+file = open('416_tiny/yolov7tiny.json', 'r');
 
 model_params_text = file.read();
 
@@ -43,7 +43,7 @@ nnOut.setStreamName("nn")
 
 
 # Properties
-camRgb.setPreviewSize(640, 640)
+camRgb.setPreviewSize(416, 416)
 camRgb.setResolution(dai.ColorCameraProperties.SensorResolution.THE_1080_P)
 camRgb.setInterleaved(False)
 camRgb.setColorOrder(dai.ColorCameraProperties.ColorOrder.BGR)
